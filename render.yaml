@@ -1,38 +1,25 @@
-# Use this Blueprint to deploy n8n on Render as a web
-# service that uses a Postgres database to store
-# workflow data.
+# Blueprint: n8n on Render (web service + free Postgres) for the Aarambh question generator.
 #
-# This Blueprint uses free instance types (specified by
-# `plan`) for both the web service and the database. You
-# can upgrade to paid instance types at any time to
-# increase resources.
+# Two-step deploy:
+#   1. Deploy once with N8N_HOST / WEBHOOK_URL left as placeholders.
+#   2. Copy the service URL Render gives you (https://<name>.onrender.com),
+#      put it into N8N_HOST (no https://) and WEBHOOK_URL (with https:// and a trailing /),
+#      then redeploy.
 
 services:
   - type: web
     plan: free
-    # This is the runtime for services that pull a prebuilt Docker image
     runtime: image
-    # You can give the service any name
     name: n8n-service
     image:
-      # Pulls the n8n image tagged as latest from Docker Hub
       url: docker.io/n8nio/n8n:1.94.1
 
-    # All environment variables defined below are required!
-    #
-    # You can define additional environment variables as needed.
     envVars:
-      # Generates a base64-encoded key for
-      # encrypting credentials in n8n
-      #
-      # Do not modify this value after it's generated!
-      # If you do, you'll lose access to all credentials
-      # encrypted with the previous value.
+      # Do not change after first deploy, or saved credentials become unreadable.
       - key: N8N_ENCRYPTION_KEY
         generateValue: true
 
-      # These automatically populate connection details 
-      # for the Render Postgres database defined below
+      # Database connection (filled in automatically from the database below)
       - key: DB_TYPE
         value: postgresdb
       - key: DB_POSTGRESDB_DATABASE
@@ -52,14 +39,48 @@ services:
           name: n8n-db
           property: user
 
+      # --- Networking / URLs ---
+      - key: PORT
+        value: "5678"
+      - key: N8N_PROTOCOL
+        value: https
+      - key: N8N_HOST
+        value: REPLACE_WITH_YOUR_SERVICE_HOST   # e.g. n8n-service-abcd.onrender.com
+      - key: WEBHOOK_URL
+        value: https://REPLACE_WITH_YOUR_SERVICE_HOST/
+      - key: N8N_PROXY_HOPS
+        value: "1"
+
+      # --- Question-generation workflow ---
+      # Render asks for this value in the dashboard; it is NOT stored in the repo.
+      # Use the same value as N8N_QUESTION_GENERATION_SECRET in the backend (32+ chars).
+      - key: N8N_QUESTION_GENERATION_SECRET
+        sync: false
+      # Lets Code nodes read $env (this workflow's Verify secret node needs it).
+      - key: N8N_BLOCK_ENV_ACCESS_IN_NODE
+        value: "false"
+      # Lets the Verify secret node use crypto.timingSafeEqual.
+      - key: NODE_FUNCTION_ALLOW_BUILTIN
+        value: crypto
+
+      # --- Keep memory low on the free 512 MB instance ---
+      - key: N8N_RUNNERS_ENABLED
+        value: "false"
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=400
+
+      # --- Housekeeping ---
+      - key: EXECUTIONS_DATA_PRUNE
+        value: "true"
+      - key: EXECUTIONS_DATA_MAX_AGE
+        value: "168"
+
+      # Optional labels returned in the response metadata
+      - key: AARAMBH_LLM_PROVIDER
+        value: google
+      - key: AARAMBH_LLM_MODEL
+        value: gemini-2.5-flash
+
 databases:
   - name: n8n-db
     plan: free
-    # The free instance type is limited to 1 GB of disk
-    # space.
-    #
-    # If you later upgrade to a paid instance type, you can
-    # increase the disk size to any multiple of 5 GB by
-    # setting the `diskSizeGB` property.
-    #
-    # diskSizeGB: 5
